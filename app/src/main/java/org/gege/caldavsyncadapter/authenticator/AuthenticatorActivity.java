@@ -26,6 +26,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.annotation.TargetApi;
 import android.app.Activity;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.AsyncTask;
@@ -101,6 +102,187 @@ public class AuthenticatorActivity extends Activity {
     private String mAccountname;
     private EditText mAccountnameView;
 
+    protected enum LoginResult {
+        MalformedURLException,
+        GeneralSecurityException,
+        UnkonwnException,
+        WrongCredentials,
+        InvalidResponse,
+        WrongUrl,
+        ConnectionRefused,
+        Success_Calendar,
+        Success_Collection,
+        Account_Already_In_Use
+    }
+
+
+    /**
+     * Represents an asynchronous login/registration task used to authenticate
+     * the user.
+     */
+    public class UserLoginTask extends AsyncTask<Void, Void, LoginResult> {
+
+        @Override
+        protected LoginResult doInBackground(Void... params) {
+
+            TestConnectionResult result = null;
+
+            try {
+
+                CaldavFacade facade = new CaldavFacade(mUser, mPassword, mURL);
+                String version = "";
+                try {
+                    version = mContext.getPackageManager().getPackageInfo(mContext.getPackageName(), 0).versionName;
+                } catch (NameNotFoundException e) {
+                    version = "unknown";
+                    e.printStackTrace();
+                }
+                facade.setVersion(version);
+                result = facade.testConnection();
+                Log.i(TAG, "testConnection status=" + result);
+            } catch (HttpHostConnectException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.ConnectionRefused;
+            } catch (MalformedURLException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.MalformedURLException;
+            } catch (UnsupportedEncodingException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.UnkonwnException;
+            } catch (ParserConfigurationException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.UnkonwnException;
+            } catch (SAXException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.InvalidResponse;
+            } catch (IOException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.UnkonwnException;
+            } catch (URISyntaxException e) {
+                Log.w(TAG, "testConnection", e);
+                return LoginResult.MalformedURLException;
+            }
+
+            if (result == null) {
+                return LoginResult.UnkonwnException;
+            }
+
+            switch (result) {
+
+                case SUCCESS:
+
+                    LoginResult Result = LoginResult.Success_Calendar;
+
+                    final Account account;
+                    if (mAccountname.equals("")) {
+                        account = new Account(mUser + ACCOUNT_NAME_SPLITTER + mURL, ACCOUNT_TYPE);
+                    } else {
+                        account = new Account(mAccountname, ACCOUNT_TYPE);
+                    }
+                    if (mAccountManager.addAccountExplicitly(account, mPassword, null)) {
+                        Log.v(TAG, "new account created");
+
+                        ContentResolver.setIsSyncable(account, "com.android.calendar", 1);
+                        ContentResolver.setSyncAutomatically(account, "com.android.calendar", true);
+
+                        mAccountManager.setUserData(account, USER_DATA_URL_KEY, mURL);
+                        mAccountManager.setUserData(account, USER_DATA_USERNAME, mUser);
+                        mAccountManager.setUserData(account, USER_DATA_VERSION, CURRENT_USER_DATA_VERSION);
+                    } else {
+                        Log.v(TAG, "no new account created");
+                        Result = LoginResult.Account_Already_In_Use;
+                    }
+
+                    return Result;
+
+                case WRONG_CREDENTIAL:
+                    return LoginResult.WrongCredentials;
+
+                case WRONG_SERVER_STATUS:
+                    return LoginResult.InvalidResponse;
+
+                case WRONG_URL:
+                    return LoginResult.WrongUrl;
+
+                case WRONG_ANSWER:
+                    return LoginResult.InvalidResponse;
+
+                default:
+                    return LoginResult.UnkonwnException;
+
+            }
+
+        }
+
+        @Override
+        protected void onPostExecute(final LoginResult result) {
+            mAuthTask = null;
+            showProgress(false);
+
+            int duration = Toast.LENGTH_SHORT;
+            Toast toast;
+
+            switch (result) {
+                case Success_Calendar:
+                    toast = Toast.makeText(getApplicationContext(), R.string.success_calendar, duration);
+                    toast.show();
+                    finish();
+                    break;
+                case Success_Collection:
+                    toast = Toast.makeText(getApplicationContext(), R.string.success_collection, duration);
+                    toast.show();
+                    finish();
+                    break;
+                case MalformedURLException:
+                    toast = Toast.makeText(getApplicationContext(), R.string.error_incorrect_url_format, duration);
+                    toast.show();
+                    mURLView.setError(getString(R.string.error_incorrect_url_format));
+                    mURLView.requestFocus();
+                    break;
+                case InvalidResponse:
+                    toast = Toast.makeText(getApplicationContext(), R.string.error_invalid_server_answer, duration);
+                    toast.show();
+                    mURLView.setError(getString(R.string.error_invalid_server_answer));
+                    mURLView.requestFocus();
+                    break;
+                case WrongUrl:
+                    toast = Toast.makeText(getApplicationContext(), R.string.error_wrong_url, duration);
+                    toast.show();
+                    mURLView.setError(getString(R.string.error_wrong_url));
+                    mURLView.requestFocus();
+                    break;
+                case WrongCredentials:
+                    mPasswordView.setError(getString(R.string.error_incorrect_password));
+                    mPasswordView.requestFocus();
+                    break;
+                case ConnectionRefused:
+                    toast = Toast.makeText(getApplicationContext(), R.string.error_connection_refused, duration);
+                    toast.show();
+                    mURLView.setError(getString(R.string.error_connection_refused));
+                    mURLView.requestFocus();
+                    break;
+                case Account_Already_In_Use:
+                    toast = Toast.makeText(getApplicationContext(), R.string.error_account_already_in_use, duration);
+                    toast.show();
+                    mURLView.setError(getString(R.string.error_account_already_in_use));
+                    mURLView.requestFocus();
+                    break;
+                default:
+                    toast = Toast.makeText(getApplicationContext(), R.string.error_unkown_error, duration);
+                    toast.show();
+                    mURLView.setError(getString(R.string.error_unkown_error));
+                    mURLView.requestFocus();
+                    break;
+            }
+        }
+
+        @Override
+        protected void onCancelled() {
+            mAuthTask = null;
+            showProgress(false);
+        }
+    }
+
     public AuthenticatorActivity() {
         super();
 
@@ -135,7 +317,6 @@ public class AuthenticatorActivity extends Activity {
             }
         });
 
-
         mURLView = (EditText) findViewById(R.id.url);
 
         mAccountnameView = (EditText) findViewById(R.id.accountname);
@@ -151,7 +332,6 @@ public class AuthenticatorActivity extends Activity {
                         attemptLogin();
                     }
                 });
-
 
     }
 
@@ -273,199 +453,4 @@ public class AuthenticatorActivity extends Activity {
         }
     }
 
-
-    protected enum LoginResult {
-        MalformedURLException,
-        GeneralSecurityException,
-        UnkonwnException,
-        WrongCredentials,
-        InvalidResponse,
-        WrongUrl,
-        ConnectionRefused,
-        Success_Calendar,
-        Success_Collection,
-        Account_Already_In_Use
-    }
-
-
-    /**
-     * Represents an asynchronous login/registration task used to authenticate
-     * the user.
-     */
-    public class UserLoginTask extends AsyncTask<Void, Void, LoginResult> {
-
-        @Override
-        protected LoginResult doInBackground(Void... params) {
-
-            TestConnectionResult result = null;
-
-            try {
-                CaldavFacade facade = new CaldavFacade(mUser, mPassword, mURL);
-                String version = "";
-                try {
-                    version = mContext.getPackageManager().getPackageInfo(mContext.getPackageName(), 0).versionName;
-                } catch (NameNotFoundException e) {
-                    version = "unknown";
-                    e.printStackTrace();
-                }
-                facade.setVersion(version);
-                result = facade.testConnection();
-                Log.i(TAG, "testConnection status=" + result);
-            } catch (HttpHostConnectException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.ConnectionRefused;
-            } catch (MalformedURLException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.MalformedURLException;
-            } catch (UnsupportedEncodingException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.UnkonwnException;
-            } catch (ParserConfigurationException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.UnkonwnException;
-            } catch (SAXException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.InvalidResponse;
-            } catch (IOException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.UnkonwnException;
-            } catch (URISyntaxException e) {
-                Log.w(TAG, "testConnection", e);
-                return LoginResult.MalformedURLException;
-            }
-
-            if (result == null) {
-                return LoginResult.UnkonwnException;
-            }
-
-            switch (result) {
-
-                case SUCCESS:
-                    boolean OldAccount = false;
-                    LoginResult Result = LoginResult.Success_Calendar;
-
-                    if (OldAccount) {
-                        final Account account = new Account(mUser, ACCOUNT_TYPE);
-                        if (mAccountManager.addAccountExplicitly(account, mPassword, null)) {
-                            Log.v(TAG, "new account created");
-                            mAccountManager.setUserData(account, USER_DATA_URL_KEY, mURL);
-                        } else {
-                            Log.v(TAG, "no new account created");
-                            Result = LoginResult.Account_Already_In_Use;
-                        }
-                    } else {
-                        final Account account;
-                        if (mAccountname.equals("")) {
-                            account = new Account(mUser + ACCOUNT_NAME_SPLITTER + mURL, ACCOUNT_TYPE);
-                        } else {
-                            account = new Account(mAccountname, ACCOUNT_TYPE);
-                        }
-                        if (mAccountManager.addAccountExplicitly(account, mPassword, null)) {
-                            Log.v(TAG, "new account created");
-                            mAccountManager.setUserData(account, USER_DATA_URL_KEY, mURL);
-                            mAccountManager.setUserData(account, USER_DATA_USERNAME, mUser);
-                            mAccountManager.setUserData(account, USER_DATA_VERSION, CURRENT_USER_DATA_VERSION);
-                        } else {
-                            Log.v(TAG, "no new account created");
-                            Result = LoginResult.Account_Already_In_Use;
-                        }
-                    }
-
-                    return Result;
-
-                case WRONG_CREDENTIAL:
-                    return LoginResult.WrongCredentials;
-
-                case WRONG_SERVER_STATUS:
-                    return LoginResult.InvalidResponse;
-
-                case WRONG_URL:
-                    return LoginResult.WrongUrl;
-
-                case WRONG_ANSWER:
-                    return LoginResult.InvalidResponse;
-
-                default:
-                    return LoginResult.UnkonwnException;
-
-            }
-
-        }
-
-
-        @Override
-        protected void onPostExecute(final LoginResult result) {
-            mAuthTask = null;
-            showProgress(false);
-
-            int duration = Toast.LENGTH_SHORT;
-            Toast toast = null;
-
-            switch (result) {
-                case Success_Calendar:
-                    toast = Toast.makeText(getApplicationContext(), R.string.success_calendar, duration);
-                    toast.show();
-                    finish();
-                    break;
-
-                case Success_Collection:
-                    toast = Toast.makeText(getApplicationContext(), R.string.success_collection, duration);
-                    toast.show();
-                    finish();
-                    break;
-
-                case MalformedURLException:
-
-                    toast = Toast.makeText(getApplicationContext(), R.string.error_incorrect_url_format, duration);
-                    toast.show();
-                    mURLView.setError(getString(R.string.error_incorrect_url_format));
-                    mURLView.requestFocus();
-                    break;
-                case InvalidResponse:
-                    toast = Toast.makeText(getApplicationContext(), R.string.error_invalid_server_answer, duration);
-                    toast.show();
-                    mURLView.setError(getString(R.string.error_invalid_server_answer));
-                    mURLView.requestFocus();
-                    break;
-                case WrongUrl:
-                    toast = Toast.makeText(getApplicationContext(), R.string.error_wrong_url, duration);
-                    toast.show();
-                    mURLView.setError(getString(R.string.error_wrong_url));
-                    mURLView.requestFocus();
-                    break;
-
-                case WrongCredentials:
-                    mPasswordView.setError(getString(R.string.error_incorrect_password));
-                    mPasswordView.requestFocus();
-                    break;
-
-                case ConnectionRefused:
-                    toast = Toast.makeText(getApplicationContext(), R.string.error_connection_refused, duration);
-                    toast.show();
-                    mURLView.setError(getString(R.string.error_connection_refused));
-                    mURLView.requestFocus();
-                    break;
-                case Account_Already_In_Use:
-                    toast = Toast.makeText(getApplicationContext(), R.string.error_account_already_in_use, duration);
-                    toast.show();
-                    mURLView.setError(getString(R.string.error_account_already_in_use));
-                    mURLView.requestFocus();
-                    break;
-                default:
-                    toast = Toast.makeText(getApplicationContext(), R.string.error_unkown_error, duration);
-                    toast.show();
-                    mURLView.setError(getString(R.string.error_unkown_error));
-                    mURLView.requestFocus();
-                    break;
-            }
-
-
-        }
-
-        @Override
-        protected void onCancelled() {
-            mAuthTask = null;
-            showProgress(false);
-        }
-    }
 }

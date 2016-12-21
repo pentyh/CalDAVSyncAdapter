@@ -135,6 +135,8 @@ public class SyncAdapter extends AbstractThreadedSyncAdapter {
         androidCalList.readCalendarFromClient();
         ArrayList<Uri> notifyList = new ArrayList<>();
 
+        AccountManager accountManager;
+
         try {
             String Username = "";
             String UserDataVersion = mAccountManager.getUserData(account, AuthenticatorActivity.USER_DATA_VERSION);

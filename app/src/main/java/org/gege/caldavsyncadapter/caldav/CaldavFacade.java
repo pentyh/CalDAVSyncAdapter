@@ -100,6 +100,8 @@ import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 
+import static android.R.id.home;
+
 public class CaldavFacade {
     private static final String TAG = "CaldavFacade";
 
@@ -138,13 +140,12 @@ public class CaldavFacade {
     }
 
     public CaldavFacade(String mUser, String mPassword, String mURL) throws MalformedURLException {
+
         url = new URL(mURL);
 
         httpClient = getHttpClient();
+        AuthScope as = new AuthScope(url.getHost(), -1);
         UsernamePasswordCredentials upc = new UsernamePasswordCredentials(mUser, mPassword);
-
-        AuthScope as = null;
-        as = new AuthScope(url.getHost(), -1);
         ((AbstractHttpClient) httpClient).getCredentialsProvider().setCredentials(as, upc);
 
         mContext = new BasicHttpContext();
@@ -198,6 +199,9 @@ public class CaldavFacade {
             AuthState authState = (AuthState) context.getAttribute(ClientContext.TARGET_AUTH_STATE);
 
             if (authState.getAuthScheme() == null) {
+
+                Log.i(TAG, "---getAuthScheme() is null");
+
                 if (mLastAuthState != null) {
                     Log.d(TAG, "LastAuthState: restored with user " + mLastAuthState.getCredentials().getUserPrincipal().getName());
                     authState.setAuthScheme(mLastAuthState.getAuthScheme());
@@ -205,6 +209,7 @@ public class CaldavFacade {
                 } else {
                     Log.d(TAG, "LastAuthState: nothing to do");
                 }
+
                 if (mLastAuthScope != null) {
                     authState.setAuthScope(mLastAuthScope);
                     Log.d(TAG, "LastAuthScope: restored");
@@ -212,10 +217,14 @@ public class CaldavFacade {
                     Log.d(TAG, "LastAuthScope: nothing to do");
                 }
             } else {
+
+                Log.i(TAG, "---getAuthScheme() is not null");
                 //AuthState and AuthScope have to be saved separate because of the AuthScope within AuthState gets lost, so we save it in a separate var.
                 mLastAuthState = authState;
                 Log.d(TAG, "LastAuthState: new with user " + mLastAuthState.getCredentials().getUserPrincipal().getName());
+
                 if (authState.getAuthScope() != null) {
+
                     mLastAuthScope = authState.getAuthScope();
                     Log.d(TAG, "LastAuthScope: new");
                 }
@@ -242,8 +251,11 @@ public class CaldavFacade {
         try {
             List<DavCalendar> calendars = forceGetCalendarsFromUri(null, url.toURI());
             if (calendars.size() != 0) {
+
+                Log.i("RL", "calendars.size() > 0");
                 return TestConnectionResult.SUCCESS;
             }
+            Log.i("RL", "calendars.size() == 0");
 
             URI userPrincipal = getUserPrincipal();
             List<URI> calendarSets = getCalendarHomes(userPrincipal);
@@ -251,6 +263,7 @@ public class CaldavFacade {
                 List<DavCalendar> calendarSetCalendars = getCalendarsFromSet(calendarSet);
                 calendars.addAll(calendarSetCalendars);
             }
+
             if (calendarSets.size() == 0) {
                 return TestConnectionResult.WRONG_ANSWER;
             }
@@ -276,7 +289,8 @@ public class CaldavFacade {
      * @throws FileNotFoundException
      */
     private List<DavCalendar> forceGetCalendarsFromUri(Context context, URI uri) throws AuthenticationException, FileNotFoundException {
-        List<DavCalendar> calendars = new ArrayList<DavCalendar>();
+
+        List<DavCalendar> calendars = new ArrayList<>();
         Exception exception = null;
         try {
             calendars = getCalendarsFromSet(uri);
@@ -306,9 +320,11 @@ public class CaldavFacade {
             }
             exception = e;
         }
+
         if (exception != null && BuildConfig.DEBUG) {
             Log.e(TAG, "Force get calendars from '" + uri.toString() + "' failed " + exception.getClass().getCanonicalName() + ": " + exception.getMessage());
         }
+
         return calendars;
     }
 
@@ -321,6 +337,7 @@ public class CaldavFacade {
             "</d:propfind>";
 
     private URI getUserPrincipal() throws SocketException, ClientProtocolException, AuthenticationException, FileNotFoundException, IOException, CaldavProtocolException, URISyntaxException {
+
         URI uri = this.url.toURI();
         HttpPropFind request = createPropFindRequest(uri, PROPFIND_USER_PRINCIPAL, 0);
         HttpResponse response = httpClient.execute(targetHost, request, mContext);
@@ -339,7 +356,7 @@ public class CaldavFacade {
             URI userPrincipalUri = new URI(userPrincipal);
             userPrincipalUri = uri.resolve(userPrincipalUri);
             if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Found userPrincipal: " + userPrincipalUri.toString());
+                Log.d(TAG, "-----getUserPrincipal(): Found userPrincipal: " + userPrincipalUri.toString());
             }
             return userPrincipalUri;
         } catch (URISyntaxException e) {
@@ -358,7 +375,7 @@ public class CaldavFacade {
         parseXML(response, calendarHomeHandler);
         List<URI> result = calendarHomeHandler.calendarHomeSet;
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, result.size() + " calendar-home-set found in " + userPrincipal.toString());
+            Log.d(TAG, "-----getCalendarHomes(): " + result.size() + " calendar-home-set found in " + userPrincipal.toString());
         }
         return result;
     }
@@ -383,7 +400,7 @@ public class CaldavFacade {
         parseXML(response, calendarsHandler);
         List<DavCalendar> result = calendarsHandler.calendars;
         if (BuildConfig.DEBUG) {
-            Log.i(TAG, result.size() + " calendars found in set " + calendarSet.toString());
+            Log.i(TAG, "-----getCalendarsFromSet(): " + result.size() + " calendars found in set " + calendarSet.toString());
         }
         return result;
     }
